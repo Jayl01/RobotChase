@@ -10,9 +10,10 @@ from WebotsSim.libraries.MyRobot import entityInfo
 from WebotsSim.libraries.MyRobot import goalBotInfos
 from WebotsSim.libraries.MyRobot import chaseBotInfos
 from WebotsSim.libraries.MyRobot import PIDControl
+from WebotsSim.controllers.REU_GoalBot import *
 
-#Looks for path from map, choosing paths with no chasers in the way
-#Recreates path when within a defined tile distance of the 
+#Creates path to trackers based on current position
+#Follows paths consistently and recreates path every certain amount of tiles
 
 # Create the robot instance.
 robot = MyRobot()
@@ -51,7 +52,6 @@ scan = True
 goingForward = False
 distanceTraveled = 0
 oldDistTraveled = 0
-operationTerminated = False
 
 World_Up = 90
 World_Right = 0
@@ -65,8 +65,8 @@ dir_left = 3
 availableDirections = [False, False, False, False]      #up, right, down, left
 MeasurementError = 0.2
 
-estimatedPos = point(-5, -6)
-goalPosition = point(5, 5)
+estimatedPos = point(0, 5)
+targetPosition = point(-5, -6)
 
 def ReadData():
     f = open(MAP_PATH, "r")
@@ -77,7 +77,7 @@ def ReadData():
 
     f.close()
 
-def FindPathToGoal(startX, startY):
+def FindPathToGoal(startX, startY, goalX, goalY):
     pathCreated = False
     cellsToScan = []     #List of points
     cellsScanned = {        #dictionary of points scanned; point-bool
@@ -239,9 +239,8 @@ def FindPathToGoal(startX, startY):
     }
     resultList = { (startX, startY) : (0, 0) }        #dictionary of point traces; point-point (pos-dir)
 
-    #code for restricting pathways based on chaseBotInfos information.
-
-    newCellsToScan = [goalPosition]
+    targetPosition = point(goalX, goalY)
+    newCellsToScan = [targetPosition]
     tries = 0
     while (pathCreated == False):
         cellsToScan = newCellsToScan.copy()
@@ -302,11 +301,13 @@ def CellReached():      #return False to stop the robot
     estY = int(estimatedPos.y)
     print(" ")
     print(" ")
-    print("Goal Bot")
+    print("Chase Bot")
     print("Current Pos:", estimatedPos)
-    goalBotInfos[0] = entityInfo(estimatedPos.x, estimatedPos.y, 0)
+    chaseBotInfos[0] = entityInfo(estimatedPos.x, estimatedPos.y, 1)
+    print(len(goalBotInfos))
+    pathToFollow = FindPathToGoal(estimatedPos.x, estimatedPos.y, goalBotInfos[0].x, goalBotInfos[0].y)
     #pathToFollow = FindPathToGoal(estX, estY)           #recalculate
-    done = estimatedPos == goalPosition
+    done = estimatedPos == targetPosition
             
     if (done):
         robot.stop()
@@ -314,22 +315,21 @@ def CellReached():      #return False to stop the robot
     
 
 ReadData()
-goalBotInfos.append(entityInfo(estimatedPos.x, estimatedPos.y, 0))
 print(len(goalBotInfos))
-pathToFollow = FindPathToGoal(estimatedPos.x, estimatedPos.y)
+chaseBotInfos.append(entityInfo(estimatedPos.x, estimatedPos.y, 1))
+pathToFollow = FindPathToGoal(estimatedPos.x, estimatedPos.y, -5, -6)
+
+operationTerminated = True
 
 while robot.experiment_supervisor.step(robot.timestep) != -1:
-    if (operationTerminated):       #kill condition, seems to fail?
-        print("TERMINATED.")
-        break
     
     if (goingForward == False):
-        if ((estimatedPos.x, estimatedPos.y) == goalPosition):
+        if ((estimatedPos.x, estimatedPos.y) == targetPosition):
             robot.stop()
             print("GOAL")
             break
         
-        print("Value:", pathToFollow[int(estimatedPos.x), int(estimatedPos.y)])
+        #print("Value:", pathToFollow[int(estimatedPos.x), int(estimatedPos.y)])
         nextMovementInfo = pathToFollow.pop((int(estimatedPos.x), int(estimatedPos.y)))
         newEstPosX = int(estimatedPos.x - nextMovementInfo[0])
         newEstPosX = clamp(newEstPosX, -5, 6)
