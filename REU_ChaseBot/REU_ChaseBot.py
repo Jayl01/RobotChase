@@ -10,10 +10,13 @@ from WebotsSim.libraries.MyRobot import entityInfo
 from WebotsSim.libraries.MyRobot import goalBotInfos
 from WebotsSim.libraries.MyRobot import chaseBotInfos
 from WebotsSim.libraries.MyRobot import PIDControl
-from WebotsSim.controllers.REU_GoalBot import *
 
 #Creates path to trackers based on current position
 #Follows paths consistently and recreates path every certain amount of tiles
+
+#The data bridge will be dictionary of coordinates.
+#Upon moving and entering a new cell, Chase Bot will update the cell that corresponds to its position in the dictionary with "C" (for chase) and the previous cell with the default value
+#This dict will be read with coordinates and will represnt a map structure
 
 # Create the robot instance.
 robot = MyRobot()
@@ -30,6 +33,7 @@ SIDE_LIMIT = 0.4
 TILE_TRAVEL_ERROR = 0.001
 TRAVEL_SPEED = 16
 MAP_PATH = "C:/Users/AnotherGuy/FAIRIS-Lite/WebotsSim/controllers/REU_MazeData.txt"
+BRIDGE_PATH = "C:/Users/AnotherGuy/FAIRIS-Lite/WebotsSim/controllers/REU_DataBridge.txt"
 
 tilePID = PIDControl(TILE_TRAVEL_ERROR, 1, 1.25)
 
@@ -64,6 +68,7 @@ dir_down = 2
 dir_left = 3
 availableDirections = [False, False, False, False]      #up, right, down, left
 MeasurementError = 0.2
+targetCoodinates = []
 
 estimatedPos = point(0, 5)
 targetPosition = point(-5, -6)
@@ -75,6 +80,50 @@ def ReadData():
             data = f.readline().split(' ')
             cellInfos[i, j] = cellInfo(int(data[0]), int(data[1]), data[2] == "True",  data[5] == "True",  data[4] == "True",  data[3] == "True")
 
+    f.close()
+    
+def WriteBridgedData():
+    f = open(BRIDGE_PATH, "r")      #read
+    lineResults = f.readlines()
+    lineIndex = 0
+    amountOfLines = len(lineResults)
+    for i in range(amountOfLines):
+        lineSplit = lineResults[i].split(',')
+        x = int(lineSplit[0])
+        y = int(lineSplit[1])
+        robotType = lineSplit[2]
+        
+        if (x == estimatedPos.x and y == estimatedPos.y):
+            lineIndex = i
+            break;
+    
+    if (lineIndex < 0 or lineIndex > amountOfLines):
+        print("Error writing bride data.")
+        return
+
+    writeLine = estimatedPos.x, ",", estimatedPos.y, ", C" 
+    f.close()
+    f = open(BRIDGE_PATH, "w")
+    for i in range(amountOfLines):
+        if (i == lineIndex):
+            f.write(writeLine)
+        else:
+            f.write(lineResults[i])
+
+    f.close()
+    
+def ReadBridgedData():
+    f = open(BRIDGE_PATH, "r")      #read
+    lineResults = f.readlines()
+    for i in range(len(lineResults)):
+        lineSplit = lineResults[i].split(',')
+        x = int(lineSplit[0])
+        y = int(lineSplit[1])
+        robotType = lineSplit[2]
+        
+        if (robotType == "G"):
+            targetCoodinates.append(point(x, y))
+    
     f.close()
 
 def FindPathToGoal(startX, startY, goalX, goalY):

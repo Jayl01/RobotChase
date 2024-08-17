@@ -29,6 +29,7 @@ SIDE_LIMIT = 0.4
 TILE_TRAVEL_ERROR = 0.001
 TRAVEL_SPEED = 16
 MAP_PATH = "C:/Users/AnotherGuy/FAIRIS-Lite/WebotsSim/controllers/REU_MazeData.txt"
+BRIDGE_PATH = "C:/Users/AnotherGuy/FAIRIS-Lite/WebotsSim/controllers/REU_DataBridge.txt"
 
 tilePID = PIDControl(TILE_TRAVEL_ERROR, 1, 1.25)
 
@@ -64,6 +65,8 @@ dir_down = 2
 dir_left = 3
 availableDirections = [False, False, False, False]      #up, right, down, left
 MeasurementError = 0.2
+chaserCoordinates = []
+ChaserCaution = 3
 
 estimatedPos = point(-5, -6)
 goalPosition = point(5, 5)
@@ -75,6 +78,50 @@ def ReadData():
             data = f.readline().split(' ')
             cellInfos[i, j] = cellInfo(int(data[0]), int(data[1]), data[2] == "True",  data[5] == "True",  data[4] == "True",  data[3] == "True")
 
+    f.close()
+    
+def WriteBridgedData():
+    f = open(BRIDGE_PATH, "r")      #read
+    lineResults = f.readlines()
+    lineIndex = 0
+    amountOfLines = len(lineResults)
+    for i in range(amountOfLines):
+        lineSplit = lineResults[i].split(',')
+        x = int(lineSplit[0])
+        y = int(lineSplit[1])
+        robotType = lineSplit[2]
+        
+        if (x == estimatedPos.x and y == estimatedPos.y):
+            lineIndex = i
+            break;
+    
+    if (lineIndex < 0 or lineIndex > amountOfLines):
+        print("Error writing bride data.")
+        return
+
+    writeLine = estimatedPos.x, ",", estimatedPos.y, ", G" 
+    f.close()
+    f = open(BRIDGE_PATH, "w")
+    for i in range(amountOfLines):
+        if (i == lineIndex):
+            f.write(writeLine)
+        else:
+            f.write(lineResults[i])
+
+    f.close()
+    
+def ReadBridgedData():
+    f = open(BRIDGE_PATH, "r")      #read
+    lineResults = f.readlines()
+    for i in range(len(lineResults)):
+        lineSplit = lineResults[i].split(',')
+        x = int(lineSplit[0])
+        y = int(lineSplit[1])
+        robotType = lineSplit[2]
+        
+        if (robotType == "C"):
+            chaserCoordinates.append(point(x, y))
+    
     f.close()
 
 def FindPathToGoal(startX, startY):
@@ -240,6 +287,26 @@ def FindPathToGoal(startX, startY):
     resultList = { (startX, startY) : (0, 0) }        #dictionary of point traces; point-point (pos-dir)
 
     #code for restricting pathways based on chaseBotInfos information.
+    cellsToAvoid = []
+    for i in range(len(chaserCoordinates)):
+        leftBound = clamp(chaserCoordinates[i].x - ChaserCaution, -5, 6)        #Bounds for faster loops
+        rightBound = clamp(chaserCoordinates[i].x + ChaserCaution + 1, -5, 6)
+        upperBound = clamp(chaserCoordinates[i].y + ChaserCaution + 1, -6, 5)
+        lowerBound = clamp(chaserCoordinates[i].y - ChaserCaution, -5, 6)
+        for x in range(leftBound, rightBound):
+            for y in range(lowerBound, upperBound):
+                if (abs(x - chaserCoordinates[i].x) + abs(y - chaserCoordinates[i].y) <= ChaserCaution):     #x dist + y dist < caution describes the distance of the checked coord against limit
+                    cellsToAvoid.append(point(x, y))
+                    
+    currentMapData = cellInfos.copy()
+    for i in range(len(cellsToAvoid)):      #break after coords get too far
+        for y in range(clamp(cellsToAvoid[i].y - ChaserCaution - 1, -6, 5), clamp(cellsToAvoid[i].y + ChaserCaution + 1, -6, 5) + 1, -1):       #loop bound limitations
+            for x in range(clamp(cellsToAvoid[i].x - ChaserCaution - 1, -5, 6), clamp(cellsToAvoid[i].x + ChaserCaution + 1, -5, 6) + 1):
+                if (abs(x - chaserCoordinates[i].x) + abs(y - chaserCoordinates[i].y) <= ChaserCaution):
+                    currentMapData = cellInfo(x, y, True, True, True, True)     #blocks all paths and considers them solid
+                else:
+                    currentMapData = cellInfo(x, y, True, True, True, True)     #blocks all paths and considers them solid
+                
 
     newCellsToScan = [goalPosition]
     tries = 0
@@ -249,7 +316,7 @@ def FindPathToGoal(startX, startY):
         #print(cellsToScan, len(cellsToScan))
         
         tries += 1
-        if (tries >= 500):
+        if (tries >= 144):      #144 being the span of the entire map
             break
 
         for i in range(len(cellsToScan)):
