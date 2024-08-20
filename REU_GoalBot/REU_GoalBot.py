@@ -7,9 +7,8 @@ os.chdir("../..")
 # Import MyRobot Class
 from WebotsSim.libraries.MyRobot import MyRobot
 from WebotsSim.libraries.MyRobot import entityInfo
-from WebotsSim.libraries.MyRobot import goalBotInfos
-from WebotsSim.libraries.MyRobot import chaseBotInfos
 from WebotsSim.libraries.MyRobot import PIDControl
+from datetime import datetime
 
 #Looks for path from map, choosing paths with no chasers in the way
 #Recreates path when within a defined tile distance of the 
@@ -80,13 +79,33 @@ def ReadData():
 
     f.close()
     
+def InfoStatement():
+    return str(estimatedPos.x) + " " + str(estimatedPos.y) + " G"
+    
+def InitBridgeData():       #within 5 seconds of datetime, adding happens. If not, data is replaced
+    f = open(BRIDGE_PATH, "r")
+    readTime = int(f.readline())
+    f.close()
+        
+    currentDateTime = datetime.now()
+    currTime = (currentDateTime.hour * 60 * 60) + (currentDateTime.minute * 60) + currentDateTime.second        #convert to seconds
+    if (currTime - readTime > 5 * 60):      #part of the same session
+        f = open(BRIDGE_PATH, "w")
+        f.write(str(currTime))
+        f.write("\n" + InfoStatement())
+    else:
+        f = open(BRIDGE_PATH, "a")
+        f.write(InfoStatement())
+
+    f.close()
+    
 def WriteBridgedData():
     f = open(BRIDGE_PATH, "r")      #read
     lineResults = f.readlines()
     lineIndex = 0
     amountOfLines = len(lineResults)
-    for i in range(amountOfLines):
-        lineSplit = lineResults[i].split(',')
+    for i in range(1, amountOfLines):
+        lineSplit = lineResults[i].split(' ')
         x = int(lineSplit[0])
         y = int(lineSplit[1])
         robotType = lineSplit[2]
@@ -96,25 +115,27 @@ def WriteBridgedData():
             break;
     
     if (lineIndex < 0 or lineIndex > amountOfLines):
-        print("Error writing bride data.")
+        print("Goal: Error writing bride data.")
         return
 
-    writeLine = estimatedPos.x, ",", estimatedPos.y, ", G" 
+    writeLine = InfoStatement()
     f.close()
     f = open(BRIDGE_PATH, "w")
     for i in range(amountOfLines):
         if (i == lineIndex):
-            f.write(writeLine)
+            f.write("\n" + writeLine)
         else:
             f.write(lineResults[i])
 
     f.close()
+    print("Goal: Bridge Data Update")
     
 def ReadBridgedData():
     f = open(BRIDGE_PATH, "r")      #read
     lineResults = f.readlines()
-    for i in range(len(lineResults)):
-        lineSplit = lineResults[i].split(',')
+    chaserCoordinates.clear()
+    for i in range(1, len(lineResults)):
+        lineSplit = lineResults[i].split(' ')
         x = int(lineSplit[0])
         y = int(lineSplit[1])
         robotType = lineSplit[2]
@@ -123,6 +144,7 @@ def ReadBridgedData():
             chaserCoordinates.append(point(x, y))
     
     f.close()
+    print("Goal: Bridge Data Read")
 
 def FindPathToGoal(startX, startY):
     pathCreated = False
@@ -304,8 +326,8 @@ def FindPathToGoal(startX, startY):
             for x in range(clamp(cellsToAvoid[i].x - ChaserCaution - 1, -5, 6), clamp(cellsToAvoid[i].x + ChaserCaution + 1, -5, 6) + 1):
                 if (abs(x - chaserCoordinates[i].x) + abs(y - chaserCoordinates[i].y) <= ChaserCaution):
                     currentMapData = cellInfo(x, y, True, True, True, True)     #blocks all paths and considers them solid
-                else:
-                    currentMapData = cellInfo(x, y, True, True, True, True)     #blocks all paths and considers them solid
+                #else:
+                    #currentMapData = cellInfo(x, y, True, True, True, True)     #blocks all paths and considers them solid
                 
 
     newCellsToScan = [goalPosition]
@@ -371,9 +393,10 @@ def CellReached():      #return False to stop the robot
     print(" ")
     print("Goal Bot")
     print("Current Pos:", estimatedPos)
-    goalBotInfos[0] = entityInfo(estimatedPos.x, estimatedPos.y, 0)
     #pathToFollow = FindPathToGoal(estX, estY)           #recalculate
     done = estimatedPos == goalPosition
+    WriteBridgedData()
+    ReadBridgedData()
             
     if (done):
         robot.stop()
@@ -381,8 +404,7 @@ def CellReached():      #return False to stop the robot
     
 
 ReadData()
-goalBotInfos.append(entityInfo(estimatedPos.x, estimatedPos.y, 0))
-print(len(goalBotInfos))
+InitBridgeData()
 pathToFollow = FindPathToGoal(estimatedPos.x, estimatedPos.y)
 
 while robot.experiment_supervisor.step(robot.timestep) != -1:
@@ -396,7 +418,7 @@ while robot.experiment_supervisor.step(robot.timestep) != -1:
             print("GOAL")
             break
         
-        print("Value:", pathToFollow[int(estimatedPos.x), int(estimatedPos.y)])
+        #print("Value:", pathToFollow[int(estimatedPos.x), int(estimatedPos.y)])
         nextMovementInfo = pathToFollow.pop((int(estimatedPos.x), int(estimatedPos.y)))
         newEstPosX = int(estimatedPos.x - nextMovementInfo[0])
         newEstPosX = clamp(newEstPosX, -5, 6)
