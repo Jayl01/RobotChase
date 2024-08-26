@@ -2,6 +2,7 @@
 from collections import namedtuple
 import math
 import os
+from pstats import StatsProfile
 os.chdir("../..")
 
 # Import MyRobot Class
@@ -69,7 +70,9 @@ availableDirections = [False, False, False, False]      #up, right, down, left
 MeasurementError = 0.2
 targetCoodinates = []
 
-estimatedPos = point(0, 5)
+startPos = point(5,4)
+estimatedPos = startPos
+oldEstimatedPos = startPos
 targetPosition = point(-5, -6)
 
 def ReadData():
@@ -91,13 +94,13 @@ def InitBridgeData():       #within 5 seconds of datetime, adding happens. If no
         
     currentDateTime = datetime.now()
     currTime = (currentDateTime.hour * 60 * 60) + (currentDateTime.minute * 60) + currentDateTime.second        #convert to seconds
-    if (currTime - readTime > 5 * 60):      #part of the same session
+    if (abs(currTime - readTime) > 2):      #part of the same session
         f = open(BRIDGE_PATH, "w")
-        f.write(str(currTime))
-        f.write("\n" + InfoStatement())
+        f.write(str(currTime) + ' \n')
+        f.write(InfoStatement() + ' \n')
     else:
         f = open(BRIDGE_PATH, "a")
-        f.write("\n" + InfoStatement())
+        f.write(InfoStatement() + ' \n')
 
     f.close()
     
@@ -106,17 +109,17 @@ def WriteBridgedData():
     lineResults = f.readlines()
     lineIndex = 0
     amountOfLines = len(lineResults)
-    for i in range(amountOfLines):
+    for i in range(1, amountOfLines):
         lineSplit = lineResults[i].split(' ')
         x = int(lineSplit[0])
         y = int(lineSplit[1])
         robotType = lineSplit[2]
         
-        if (x == estimatedPos.x and y == estimatedPos.y):
+        if (x == oldEstimatedPos.x and y == oldEstimatedPos.y and robotType == "C"):
             lineIndex = i
             break;
     
-    if (lineIndex < 0 or lineIndex > amountOfLines):
+    if (lineIndex <= 0 or lineIndex > amountOfLines):
         print("Chase: Error writing bride data.")
         return
 
@@ -125,7 +128,7 @@ def WriteBridgedData():
     f = open(BRIDGE_PATH, "w")
     for i in range(amountOfLines):
         if (i == lineIndex):
-            f.write("\n" + writeLine)
+            f.write(writeLine + ' \n')
         else:
             f.write(lineResults[i])
 
@@ -136,7 +139,7 @@ def ReadBridgedData():
     f = open(BRIDGE_PATH, "r")      #read
     lineResults = f.readlines()
     targetCoodinates.clear()
-    for i in range(len(lineResults)):
+    for i in range(1, len(lineResults)):
         lineSplit = lineResults[i].split(' ')
         x = int(lineSplit[0])
         y = int(lineSplit[1])
@@ -147,7 +150,6 @@ def ReadBridgedData():
     
     f.close()
     print("Chase: Bridge Data Read")
-
 
 def FindPathToGoal(startX, startY, goalX, goalY):
     pathCreated = False
@@ -378,13 +380,17 @@ def CellReached():      #return False to stop the robot
     WriteBridgedData()
     ReadBridgedData()
     
+    targetPosition = point(targetCoodinates[0].x, targetCoodinates[0].y)
+    print("Target Coord:", targetCoodinates[0].x, targetCoodinates[0].y)
     pathToFollow = FindPathToGoal(estimatedPos.x, estimatedPos.y, targetCoodinates[0].x, targetCoodinates[0].y)
     #pathToFollow = FindPathToGoal(estX, estY)           #recalculate
     done = estimatedPos == targetPosition
-            
+
     if (done):
         robot.stop()
-        return False
+        return False, pathToFollow
+    else:
+        return True, pathToFollow
     
 
 ReadData()
@@ -394,7 +400,6 @@ pathToFollow = FindPathToGoal(estimatedPos.x, estimatedPos.y, -5, -6)
 operationTerminated = True
 
 while robot.experiment_supervisor.step(robot.timestep) != -1:
-    
     if (goingForward == False):
         if ((estimatedPos.x, estimatedPos.y) == targetPosition):
             robot.stop()
@@ -417,6 +422,7 @@ while robot.experiment_supervisor.step(robot.timestep) != -1:
                 
         robot.faceDirProcess(targetAngle)
         goingForward = True
+        oldEstimatedPos = estimatedPos
         estimatedPos = point(newEstPosX, newEstPosY)
         if (estimatedPos.x != newEstPosX or estimatedPos.y != newEstPosY):
             CellReached()
@@ -431,6 +437,8 @@ while robot.experiment_supervisor.step(robot.timestep) != -1:
             goingForward = False
             scan = True
             oldDistTraveled = robot.distanceTraveled()
-            value = CellReached()
-            if (value == False):
-                break    
+            valueTuple = CellReached()
+            pathToFollow = valueTuple[1]
+            if (valueTuple[0] == False):
+                robot.stop()
+                break

@@ -51,7 +51,6 @@ scan = True
 goingForward = False
 distanceTraveled = 0
 oldDistTraveled = 0
-operationTerminated = False
 
 World_Up = 90
 World_Right = 0
@@ -65,10 +64,14 @@ dir_left = 3
 availableDirections = [False, False, False, False]      #up, right, down, left
 MeasurementError = 0.2
 chaserCoordinates = []
-ChaserCaution = 3
+ChaserCaution = 0
 
-estimatedPos = point(-5, -6)
+startPos = point(0, -3)
+estimatedPos = startPos
+oldEstimatedPos = startPos
 goalPosition = point(5, 5)
+oldX = -5
+oldY = -6
 
 def ReadData():
     f = open(MAP_PATH, "r")
@@ -89,13 +92,13 @@ def InitBridgeData():       #within 5 seconds of datetime, adding happens. If no
         
     currentDateTime = datetime.now()
     currTime = (currentDateTime.hour * 60 * 60) + (currentDateTime.minute * 60) + currentDateTime.second        #convert to seconds
-    if (currTime - readTime > 5 * 60):      #part of the same session
+    if (abs(currTime - readTime) > 2):      #part of the same session
         f = open(BRIDGE_PATH, "w")
-        f.write(str(currTime))
-        f.write("\n" + InfoStatement())
+        f.write(str(currTime) + '\n')
+        f.write(InfoStatement() + ' \n')
     else:
         f = open(BRIDGE_PATH, "a")
-        f.write(InfoStatement())
+        f.write(InfoStatement() + ' \n')
 
     f.close()
     
@@ -110,11 +113,12 @@ def WriteBridgedData():
         y = int(lineSplit[1])
         robotType = lineSplit[2]
         
-        if (x == estimatedPos.x and y == estimatedPos.y):
+        print("ReadInfo:", x, y, robotType)
+        if (x == oldEstimatedPos.x and y == oldEstimatedPos.y and robotType == "G"):
             lineIndex = i
             break;
     
-    if (lineIndex < 0 or lineIndex > amountOfLines):
+    if (lineIndex <= 0 or lineIndex > amountOfLines):
         print("Goal: Error writing bride data.")
         return
 
@@ -123,8 +127,11 @@ def WriteBridgedData():
     f = open(BRIDGE_PATH, "w")
     for i in range(amountOfLines):
         if (i == lineIndex):
-            f.write("\n" + writeLine)
+            print("Write result:" + writeLine)
+            f.write(writeLine + ' \n')
         else:
+            if (i == 0):
+                print("Time:", int(lineResults[i]))
             f.write(lineResults[i])
 
     f.close()
@@ -309,26 +316,25 @@ def FindPathToGoal(startX, startY):
     resultList = { (startX, startY) : (0, 0) }        #dictionary of point traces; point-point (pos-dir)
 
     #code for restricting pathways based on chaseBotInfos information.
-    cellsToAvoid = []
+    cellsToAvoid = {}
+    for x in range(-5, 6 + 1):      #CellsToAvoid Init
+        for y in range(-6, 5 + 1):
+            cellsToAvoid[point(x, y)] = False
+            
+    print("Goal: Chaser Coords:", len(chaserCoordinates))
     for i in range(len(chaserCoordinates)):
         leftBound = clamp(chaserCoordinates[i].x - ChaserCaution, -5, 6)        #Bounds for faster loops
-        rightBound = clamp(chaserCoordinates[i].x + ChaserCaution + 1, -5, 6)
-        upperBound = clamp(chaserCoordinates[i].y + ChaserCaution + 1, -6, 5)
-        lowerBound = clamp(chaserCoordinates[i].y - ChaserCaution, -5, 6)
+        rightBound = clamp(chaserCoordinates[i].x + ChaserCaution, -5, 6) + 1
+        upperBound = clamp(chaserCoordinates[i].y + ChaserCaution, -6, 5) + 1
+        lowerBound = clamp(chaserCoordinates[i].y - ChaserCaution, -6, 5)
+        print("left:", leftBound, "right:", rightBound)
+        print("lower:", lowerBound, "upper:", upperBound)
         for x in range(leftBound, rightBound):
             for y in range(lowerBound, upperBound):
-                if (abs(x - chaserCoordinates[i].x) + abs(y - chaserCoordinates[i].y) <= ChaserCaution):     #x dist + y dist < caution describes the distance of the checked coord against limit
-                    cellsToAvoid.append(point(x, y))
-                    
-    currentMapData = cellInfos.copy()
-    for i in range(len(cellsToAvoid)):      #break after coords get too far
-        for y in range(clamp(cellsToAvoid[i].y - ChaserCaution - 1, -6, 5), clamp(cellsToAvoid[i].y + ChaserCaution + 1, -6, 5) + 1, -1):       #loop bound limitations
-            for x in range(clamp(cellsToAvoid[i].x - ChaserCaution - 1, -5, 6), clamp(cellsToAvoid[i].x + ChaserCaution + 1, -5, 6) + 1):
-                if (abs(x - chaserCoordinates[i].x) + abs(y - chaserCoordinates[i].y) <= ChaserCaution):
-                    currentMapData = cellInfo(x, y, True, True, True, True)     #blocks all paths and considers them solid
-                #else:
-                    #currentMapData = cellInfo(x, y, True, True, True, True)     #blocks all paths and considers them solid
-                
+                if (x != goalPosition.x or y != goalPosition.y):
+                    #if (abs(x - chaserCoordinates[i].x) + abs(y - chaserCoordinates[i].y) <= ChaserCaution):     #x dist + y dist < caution describes the distance of the checked coord against limit
+                    cellsToAvoid[point(x, y)] = True
+                    print("Cell Blocked:", x, y)
 
     newCellsToScan = [goalPosition]
     tries = 0
@@ -351,25 +357,25 @@ def FindPathToGoal(startX, startY):
             cellRight = cellInfos[cellToScan[0] + 1 if cellToScan[0] + 1 <= 6 else 6, cellToScan[1]]        #x = a +x clamp
             
             cellAbovePoint = (cellAbove.x, cellAbove.y)
-            if (cellInfos[cellToScan].t and cellsScanned[cellAbovePoint] == False):
+            if ((cellInfos[cellToScan].t and cellsScanned[cellAbovePoint] == False) and cellsToAvoid[cellAbovePoint] == False):
                 cellsScanned[cellAbovePoint] = True
                 newCellsToScan.append(cellAbovePoint)
                 resultList[cellAbovePoint] = (0, 1)
             
             cellLeftPoint = (cellLeft.x, cellLeft.y)
-            if (cellInfos[cellToScan].l and cellsScanned[cellLeftPoint] == False):
+            if ((cellInfos[cellToScan].l and cellsScanned[cellLeftPoint] == False) and cellsToAvoid[cellLeftPoint] == False):
                 cellsScanned[cellLeftPoint] = True
                 newCellsToScan.append(cellLeftPoint)
                 resultList[cellLeftPoint] = (-1, 0)
             
             cellRightPoint = (cellRight.x, cellRight.y)
-            if (cellInfos[cellToScan].r and cellsScanned[cellRightPoint] == False):
+            if ((cellInfos[cellToScan].r and cellsScanned[cellRightPoint] == False) and cellsToAvoid[cellRightPoint] == False):
                 cellsScanned[cellRightPoint] = True
                 newCellsToScan.append(cellRightPoint)
                 resultList[cellRightPoint] = (1, 0)
             
             cellUnderPoint = (cellUnder.x, cellUnder.y)
-            if (cellInfos[cellToScan].u and cellsScanned[cellUnderPoint] == False):
+            if ((cellInfos[cellToScan].u and cellsScanned[cellUnderPoint] == False) and cellsToAvoid[cellUnderPoint] == False):
                 cellsScanned[cellUnderPoint] = True
                 newCellsToScan.append(cellUnderPoint)
                 resultList[cellUnderPoint] = (0, -1)
@@ -386,21 +392,29 @@ def FindPathToGoal(startX, startY):
     #    for i in range(0, 3 + 1):
     #        if ()
     
-def CellReached():      #return False to stop the robot
+def CellReached():      #return False to stop the robot, returns termination condition + path
     estX = int(estimatedPos.x)
     estY = int(estimatedPos.y)
     print(" ")
     print(" ")
     print("Goal Bot")
     print("Current Pos:", estimatedPos)
-    #pathToFollow = FindPathToGoal(estX, estY)           #recalculate
-    done = estimatedPos == goalPosition
+    print("Current Old Pos:", oldEstimatedPos.x, oldEstimatedPos.y)
+    done = False
+    if (len(chaserCoordinates) > 0):
+        done = (estimatedPos == goalPosition) or (chaserCoordinates[0].x == estimatedPos.x and chaserCoordinates[0].y == estimatedPos.y)
+    else:
+        done = estimatedPos == goalPosition
+        
     WriteBridgedData()
     ReadBridgedData()
-            
+    pathToFollow = FindPathToGoal(estX, estY)           #recalculate
+    
     if (done):
         robot.stop()
-        return False
+        return False, pathToFollow
+    else:
+        return True, pathToFollow
     
 
 ReadData()
@@ -408,10 +422,6 @@ InitBridgeData()
 pathToFollow = FindPathToGoal(estimatedPos.x, estimatedPos.y)
 
 while robot.experiment_supervisor.step(robot.timestep) != -1:
-    if (operationTerminated):       #kill condition, seems to fail?
-        print("TERMINATED.")
-        break
-    
     if (goingForward == False):
         if ((estimatedPos.x, estimatedPos.y) == goalPosition):
             robot.stop()
@@ -434,6 +444,7 @@ while robot.experiment_supervisor.step(robot.timestep) != -1:
                 
         robot.faceDirProcess(targetAngle)
         goingForward = True
+        oldEstimatedPos = estimatedPos
         estimatedPos = point(newEstPosX, newEstPosY)
         if (estimatedPos.x != newEstPosX or estimatedPos.y != newEstPosY):
             CellReached()
@@ -448,6 +459,8 @@ while robot.experiment_supervisor.step(robot.timestep) != -1:
             goingForward = False
             scan = True
             oldDistTraveled = robot.distanceTraveled()
-            value = CellReached()
-            if (value == False):
+            valueTuple = CellReached()
+            pathToFollow = valueTuple[1]
+            print("Goal Path:", pathToFollow)
+            if (valueTuple[0] == False):
                 break    
